@@ -4,6 +4,11 @@ on:
   push:
     branches: [dockyard]
 
+env:
+  GOWORK: "off"
+  GONOSUMDB: "*"
+  GONOSUMCHECK: "*"
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -26,24 +31,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.24.9"
-
-      - name: Create Go workspace
-        run: |
-          go work init ./sysbox-runc ./sysbox-fs ./sysbox-mgr ./sysbox-ipc \
-            ./sysbox-libs/capability \
-            ./sysbox-libs/containerdUtils \
-            ./sysbox-libs/dockerUtils \
-            ./sysbox-libs/fileMonitor \
-            ./sysbox-libs/formatter \
-            ./sysbox-libs/idMap \
-            ./sysbox-libs/idShiftUtils \
-            ./sysbox-libs/linuxUtils \
-            ./sysbox-libs/mount \
-            ./sysbox-libs/overlayUtils \
-            ./sysbox-libs/pidfd \
-            ./sysbox-libs/pidmonitor \
-            ./sysbox-libs/shiftfs \
-            ./sysbox-libs/utils
+          cache: false
 
       - name: Install build dependencies
         run: |
