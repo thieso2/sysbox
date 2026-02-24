@@ -90,11 +90,16 @@ jobs:
           file sysbox-fs/build/amd64/sysbox-fs
           file sysbox-mgr/build/amd64/sysbox-mgr
 
-      - name: Upload binaries
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp sysbox-runc/build/amd64/sysbox-runc release/
+          cp sysbox-fs/build/amd64/sysbox-fs release/
+          cp sysbox-mgr/build/amd64/sysbox-mgr release/
+          tar -czf sysbox-static-x86_64.tar.gz -C release sysbox-runc sysbox-fs sysbox-mgr
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sysbox-static-x86_64
-          path: |
-            sysbox-runc/build/amd64/sysbox-runc
-            sysbox-fs/build/amd64/sysbox-fs
-            sysbox-mgr/build/amd64/sysbox-mgr
+          path: sysbox-static-x86_64.tar.gz
