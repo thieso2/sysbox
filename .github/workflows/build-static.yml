@@ -22,19 +22,28 @@ jobs:
 
       - name: Checkout submodules
         run: |
-          # .gitmodules uses relative URLs that resolve to this fork's owner.
-          # First, init submodules (registers them in .git/config from .gitmodules)
-          # and sync to resolve URLs, then override URLs for repos that don't
-          # exist under the fork or need the fork's branch.
-          git submodule init
-          git submodule sync --recursive
+          owner="${{ github.repository_owner }}"
 
-          # Override non-forked submodules to point to nestybox
+          # Step 1: Init and sync top-level submodules. Relative URLs in
+          # .gitmodules resolve against the fork (thieso2/).
+          git submodule init
+          git submodule sync
+
+          # Step 2: Override submodules that don't exist under the fork.
+          # The forked ones (sysbox-ipc/fs/mgr/runc) resolve correctly.
           git config submodule.sysbox-dockerfiles.url "https://github.com/nestybox/dockerfiles.git"
           git config submodule.sysbox-libs.url "https://github.com/nestybox/sysbox-libs.git"
           git config submodule.sysbox-pkgr.url "https://github.com/nestybox/sysbox-pkgr.git"
 
-          git submodule update --recursive
+          # Step 3: Clone top-level submodules (non-recursive first).
+          git submodule update
+
+          # Step 4: For nested submodules (e.g., sysbox-fs/bazil -> ../fuse.git),
+          # the relative URL resolves against the fork which may not have the repo.
+          # Rewrite those to nestybox.
+          git config --global url."https://github.com/nestybox/".insteadOf "https://github.com/${owner}/"
+          git submodule update --init --recursive
+          git config --global --unset url."https://github.com/nestybox/".insteadOf
 
       - name: Set up Go
         uses: actions/setup-go@v5
