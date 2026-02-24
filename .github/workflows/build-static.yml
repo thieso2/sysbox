@@ -45,6 +45,24 @@ jobs:
             libaio-dev \
             --no-install-recommends
 
+      - name: Debug module layout
+        run: |
+          echo "=== Go version ==="
+          go version
+          echo "=== Go env ==="
+          go env GOWORK GONOSUMDB GONOSUMCHECK GOMODCACHE
+          echo "=== sysbox-ipc protobuf files ==="
+          ls -la sysbox-ipc/sysboxFsGrpc/sysboxFsProtobuf/
+          ls -la sysbox-ipc/sysboxMgrGrpc/sysboxMgrProtobuf/
+          echo "=== sysbox-ipc go.mod ==="
+          cat sysbox-ipc/go.mod
+          echo "=== sysbox-runc go.mod (replace section) ==="
+          sed -n '/^replace/,/^)/p' sysbox-runc/go.mod
+          echo "=== test resolve from sysbox-runc ==="
+          cd sysbox-runc
+          go list -m -json github.com/nestybox/sysbox-ipc 2>&1 || true
+          go list github.com/nestybox/sysbox-ipc/sysboxFsGrpc/sysboxFsProtobuf 2>&1 || true
+
       - name: Build sysbox-runc (static)
         run: |
           cd sysbox-runc
