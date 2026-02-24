@@ -3,6 +3,7 @@ name: Build static binaries (x86_64)
 on:
   push:
     branches: [dockyard]
+    tags: ["v*"]
 
 env:
   GOWORK: "off"
@@ -21,9 +22,23 @@ jobs:
 
       - name: Checkout submodules
         run: |
-          # .gitmodules uses relative URLs that resolve to this fork, but the
-          # submodule repos only exist under nestybox. Rewrite URLs before init.
-          git config --global url."https://github.com/nestybox/".insteadOf "https://github.com/${{ github.repository_owner }}/"
+          # .gitmodules uses relative URLs (../sysbox-fs.git) that resolve to
+          # this fork's owner. For submodules that have a dockyard branch on the
+          # fork, use that; otherwise fall back to nestybox upstream.
+          owner="${{ github.repository_owner }}"
+          for sub in sysbox-ipc sysbox-fs sysbox-mgr sysbox-runc; do
+            if git ls-remote --exit-code "https://github.com/${owner}/${sub}.git" refs/heads/dockyard >/dev/null 2>&1; then
+              git config "submodule.${sub}.url" "https://github.com/${owner}/${sub}.git"
+              git config "submodule.${sub}.branch" "dockyard"
+            else
+              git config "submodule.${sub}.url" "https://github.com/nestybox/${sub}.git"
+            fi
+          done
+          # Remaining submodules always come from nestybox
+          for sub in sysbox-libs sysbox-pkgr; do
+            git config "submodule.${sub}.url" "https://github.com/nestybox/${sub}.git"
+          done
+          git config "submodule.sysbox-dockerfiles.url" "https://github.com/nestybox/dockerfiles.git"
           git submodule sync --recursive
           git submodule update --init --recursive
 
@@ -103,3 +118,9 @@ jobs:
         with:
           name: sysbox-static-x86_64
           path: sysbox-static-x86_64.tar.gz
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sysbox-static-x86_64.tar.gz
