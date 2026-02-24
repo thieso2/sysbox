@@ -9,11 +9,18 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout with submodules
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+
+      - name: Checkout submodules
+        run: |
+          # .gitmodules uses relative URLs that resolve to this fork, but the
+          # submodule repos only exist under nestybox. Rewrite URLs before init.
+          git config --global url."https://github.com/nestybox/".insteadOf "https://github.com/${{ github.repository_owner }}/"
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Set up Go
         uses: actions/setup-go@v5
