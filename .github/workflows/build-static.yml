@@ -1,0 +1,80 @@
+name: Build static binaries (x86_64)
+
+on:
+  push:
+    branches: [dockyard]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.9"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libseccomp-dev \
+            libseccomp2 \
+            pkg-config \
+            libcap-dev \
+            libaio-dev \
+            --no-install-recommends
+
+      - name: Build sysbox-runc (static)
+        run: |
+          cd sysbox-runc
+          CGO_ENABLED=1 go build -buildvcs=false -trimpath \
+            -tags "seccomp apparmor idmapped_mnt netgo osusergo" \
+            -ldflags "-extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/amd64/sysbox-runc .
+
+      - name: Build sysbox-fs (static)
+        run: |
+          cd sysbox-fs
+          CGO_ENABLED=1 go build -buildvcs=false -trimpath \
+            -tags "netgo osusergo" \
+            -installsuffix netgo \
+            -ldflags "-extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/amd64/sysbox-fs ./cmd/sysbox-fs
+
+      - name: Build sysbox-mgr (static)
+        run: |
+          cd sysbox-mgr
+          CGO_ENABLED=1 go build -buildvcs=false -trimpath \
+            -tags "idmapped_mnt netgo osusergo" \
+            -installsuffix netgo \
+            -ldflags "-w -extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/amd64/sysbox-mgr .
+
+      - name: Verify static linking
+        run: |
+          file sysbox-runc/build/amd64/sysbox-runc
+          file sysbox-fs/build/amd64/sysbox-fs
+          file sysbox-mgr/build/amd64/sysbox-mgr
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysbox-static-x86_64
+          path: |
+            sysbox-runc/build/amd64/sysbox-runc
+            sysbox-fs/build/amd64/sysbox-fs
+            sysbox-mgr/build/amd64/sysbox-mgr
