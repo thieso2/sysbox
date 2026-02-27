@@ -87,7 +87,7 @@ jobs:
             --no-install-recommends
           if [ "${{ matrix.goarch }}" = "arm64" ]; then
             sudo apt-get install -y \
-              gcc-aarch64-linux-gnu \
+              gcc-aarch64-linux-gnu libc6-dev:arm64 \
               libseccomp-dev:arm64 libseccomp2:arm64 \
               libcap-dev:arm64 libaio-dev:arm64 \
               --no-install-recommends
