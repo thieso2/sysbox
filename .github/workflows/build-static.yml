@@ -65,10 +65,18 @@ jobs:
         if: matrix.goarch == 'arm64'
         run: |
           sudo dpkg --add-architecture arm64
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe" | sudo tee /etc/apt/sources.list.d/arm64-cross.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe" | sudo tee -a /etc/apt/sources.list.d/arm64-cross.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe" | sudo tee -a /etc/apt/sources.list.d/arm64-cross.list
-          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list
+
+          # Pin every existing source line to amd64 (sources.list + all .list files)
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && sudo sed -i '/^deb \[/!s/^deb /deb [arch=amd64] /' "$f"
+          done
+
+          # Add arm64 sources from the official ports mirror
+          printf '%s\n' \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe" \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe" \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe" \
+            | sudo tee /etc/apt/sources.list.d/arm64-cross.list
 
       - name: Install build dependencies
         run: |
