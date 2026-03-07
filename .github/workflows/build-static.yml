@@ -39,13 +39,8 @@ jobs:
           git submodule init
           git submodule sync
 
-          # Step 2: Override submodules that don't exist under the fork.
-          # The forked ones (sysbox-ipc/fs/mgr/runc) resolve correctly.
-          git config submodule.sysbox-dockerfiles.url "https://github.com/nestybox/dockerfiles.git"
-          git config submodule.sysbox-libs.url "https://github.com/nestybox/sysbox-libs.git"
-          git config submodule.sysbox-pkgr.url "https://github.com/nestybox/sysbox-pkgr.git"
-
-          # Step 3: Clone top-level submodules (non-recursive first).
+          # Step 2: Clone top-level submodules (non-recursive first).
+          # All submodule repos now exist under the fork (thieso2/).
           git submodule update
 
           # Step 4: For nested submodules (e.g., sysbox-fs/bazil -> ../fuse.git),
