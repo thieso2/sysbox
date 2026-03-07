@@ -1,0 +1,196 @@
+name: Build static binaries
+
+on:
+  push:
+    branches: [dockyard]
+    tags: ["v*"]
+
+env:
+  GOWORK: "off"
+  GONOSUMDB: "*"
+  GONOSUMCHECK: "*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            cc: gcc
+            archive_suffix: x86_64
+          - goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            archive_suffix: aarch64
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout submodules
+        run: |
+          owner="${{ github.repository_owner }}"
+
+          # Step 1: Init and sync top-level submodules. Relative URLs in
+          # .gitmodules resolve against the fork (thieso2/).
+          git submodule init
+          git submodule sync
+
+          # Step 2: Override submodules that don't exist under the fork.
+          # The forked ones (sysbox-ipc/fs/mgr/runc) resolve correctly.
+          git config submodule.sysbox-dockerfiles.url "https://github.com/nestybox/dockerfiles.git"
+          git config submodule.sysbox-libs.url "https://github.com/nestybox/sysbox-libs.git"
+          git config submodule.sysbox-pkgr.url "https://github.com/nestybox/sysbox-pkgr.git"
+
+          # Step 3: Clone top-level submodules (non-recursive first).
+          git submodule update
+
+          # Step 4: For nested submodules (e.g., sysbox-fs/bazil -> ../fuse.git),
+          # the relative URL resolves against the fork which may not have the repo.
+          # Rewrite those to nestybox.
+          git config --global url."https://github.com/nestybox/".insteadOf "https://github.com/${owner}/"
+          git submodule update --init --recursive
+          git config --global --unset url."https://github.com/nestybox/".insteadOf
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.9"
+          cache: false
+
+      - name: Enable arm64 dpkg architecture
+        if: matrix.goarch == 'arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+
+          # Pin every existing source line to amd64 (sources.list + all .list files)
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && sudo sed -i '/^deb \[/!s/^deb /deb [arch=amd64] /' "$f"
+          done
+
+          # Add arm64 sources from the official ports mirror
+          printf '%s\n' \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe" \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe" \
+            "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe" \
+            | sudo tee /etc/apt/sources.list.d/arm64-cross.list
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config \
+            protobuf-compiler libprotobuf-dev \
+            --no-install-recommends
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get install -y \
+              gcc-aarch64-linux-gnu libc6-dev:arm64 \
+              libseccomp-dev:arm64 libseccomp2:arm64 \
+              libcap-dev:arm64 libaio-dev:arm64 \
+              --no-install-recommends
+          else
+            sudo apt-get install -y \
+              libseccomp-dev libseccomp2 \
+              libcap-dev libaio-dev \
+              --no-install-recommends
+          fi
+
+      - name: Generate protobuf code
+        run: |
+          go install github.com/golang/protobuf/protoc-gen-go@latest
+          cd sysbox-ipc && make sysbox-ipc
+
+      - name: Build sysbox-runc (static)
+        env:
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "1"
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          fi
+          cd sysbox-runc
+          go build -buildvcs=false -trimpath \
+            -tags "seccomp apparmor idmapped_mnt netgo osusergo" \
+            -ldflags "-extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/${{ matrix.goarch }}/sysbox-runc .
+
+      - name: Build sysbox-fs (static)
+        env:
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "1"
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          fi
+          cd sysbox-fs
+          go build -buildvcs=false -trimpath \
+            -tags "netgo osusergo" \
+            -installsuffix netgo \
+            -ldflags "-extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/${{ matrix.goarch }}/sysbox-fs ./cmd/sysbox-fs
+
+      - name: Build sysbox-mgr (static)
+        env:
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "1"
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          fi
+          cd sysbox-mgr
+          go build -buildvcs=false -trimpath \
+            -tags "idmapped_mnt netgo osusergo" \
+            -installsuffix netgo \
+            -ldflags "-w -extldflags -static \
+              -X 'main.version=$(cat ../VERSION)' \
+              -X main.commitId=$(git rev-parse HEAD)" \
+            -o build/${{ matrix.goarch }}/sysbox-mgr .
+
+      - name: Verify static linking
+        run: |
+          file sysbox-runc/build/${{ matrix.goarch }}/sysbox-runc
+          file sysbox-fs/build/${{ matrix.goarch }}/sysbox-fs
+          file sysbox-mgr/build/${{ matrix.goarch }}/sysbox-mgr
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp sysbox-runc/build/${{ matrix.goarch }}/sysbox-runc release/
+          cp sysbox-fs/build/${{ matrix.goarch }}/sysbox-fs release/
+          cp sysbox-mgr/build/${{ matrix.goarch }}/sysbox-mgr release/
+          tar -czf sysbox-static-${{ matrix.archive_suffix }}.tar.gz -C release sysbox-runc sysbox-fs sysbox-mgr
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysbox-static-${{ matrix.archive_suffix }}
+          path: sysbox-static-${{ matrix.archive_suffix }}.tar.gz
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sysbox-static-x86_64.tar.gz
+            sysbox-static-aarch64.tar.gz
