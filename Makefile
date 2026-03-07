@@ -263,17 +263,37 @@ sysbox-ipc:
 
 ##@ Installation targets
 
+APPARMOR_DROPIN := /etc/apparmor.d/local/sysbox-fs-fusermount
+APPARMOR_LOCAL_FUSERMOUNT3 := /etc/apparmor.d/local/fusermount3
+APPARMOR_INCLUDE_LINE := include <local/sysbox-fs-fusermount>
+
 install: ## Install all sysbox binaries (requires root privileges)
 	install -D -m0755 sysbox-fs/build/$(TARGET_ARCH)/sysbox-fs $(INSTALL_DIR)/sysbox-fs
 	install -D -m0755 sysbox-mgr/build/$(TARGET_ARCH)/sysbox-mgr $(INSTALL_DIR)/sysbox-mgr
 	install -D -m0755 sysbox-runc/build/$(TARGET_ARCH)/sysbox-runc $(INSTALL_DIR)/sysbox-runc
 	install -D -m0755 scr/sysbox $(INSTALL_DIR)/sysbox
+	install -D -m0644 sysbox-pkgr/systemd/sysbox-apparmor-fusermount $(APPARMOR_DROPIN)
+	@if [ -f $(APPARMOR_LOCAL_FUSERMOUNT3) ] && \
+	    ! grep -qF '$(APPARMOR_INCLUDE_LINE)' $(APPARMOR_LOCAL_FUSERMOUNT3) 2>/dev/null; then \
+		echo '$(APPARMOR_INCLUDE_LINE)' >> $(APPARMOR_LOCAL_FUSERMOUNT3); \
+		if command -v apparmor_parser >/dev/null 2>&1 && [ -f /etc/apparmor.d/fusermount3 ]; then \
+			apparmor_parser -r /etc/apparmor.d/fusermount3 >/dev/null 2>&1 || true; \
+		fi; \
+	fi
 
 uninstall: ## Uninstall all sysbox binaries (requires root privileges)
 	rm -f $(INSTALL_DIR)/sysbox
 	rm -f $(INSTALL_DIR)/sysbox-fs
 	rm -f $(INSTALL_DIR)/sysbox-mgr
 	rm -f $(INSTALL_DIR)/sysbox-runc
+	@if [ -f $(APPARMOR_LOCAL_FUSERMOUNT3) ] && \
+	    grep -qF '$(APPARMOR_INCLUDE_LINE)' $(APPARMOR_LOCAL_FUSERMOUNT3) 2>/dev/null; then \
+		sed -i '\|$(APPARMOR_INCLUDE_LINE)|d' $(APPARMOR_LOCAL_FUSERMOUNT3); \
+		if command -v apparmor_parser >/dev/null 2>&1 && [ -f /etc/apparmor.d/fusermount3 ]; then \
+			apparmor_parser -r /etc/apparmor.d/fusermount3 >/dev/null 2>&1 || true; \
+		fi; \
+	fi
+	rm -f $(APPARMOR_DROPIN)
 
 #
 # Test targets
